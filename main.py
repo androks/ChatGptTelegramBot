@@ -58,4 +58,4 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('start', start))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message))
 
-    application.run_polling()
+    application.start()
