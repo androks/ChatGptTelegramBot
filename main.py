@@ -11,6 +11,7 @@ from telegram.ext import CommandHandler, MessageHandler, ApplicationBuilder, Con
 
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
 OPEN_AI_KEY = os.environ['OPENAI_KEY']
+GPT_PROMPT = os.environ['GPT_PROMPT']
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -40,14 +41,7 @@ def get_chat_gpt_answer(telegram_id: int, question: str) -> str:
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "Welcome to the Buddhist University chat! Our conversation will be focused "
-                                          "on Buddhism and related topics. Our goal is to provide you with additional "
-                                          "information and clarification on topics you're interested in or didn't "
-                                          "fully understand from the course. Please keep in mind that our responses "
-                                          "will be based solely on the teachings found at https://studybuddhism.com/. "
-                                          "If we cannot find an answer on this website, we will let you know that we "
-                                          "don't have an answer for your question. Feel free to ask any questions and "
-                                          "we'll do our best to provide helpful and accurate responses."},
+            {"role": "system", "content": GPT_PROMPT},
             {"role": "system", "content": f'user_id: {telegram_id}'},
             {"role": "user", "content": question},
         ]
