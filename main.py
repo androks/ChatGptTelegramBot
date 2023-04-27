@@ -48,7 +48,7 @@ def get_chat_gpt_answer(telegram_id: int, question: str) -> str:
             {"role": "user", "content": question},
         ]
     )
-    return response.choices[0].text
+    return response.choices[0].message.content
 
 
 if __name__ == '__main__':
