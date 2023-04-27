@@ -12,6 +12,7 @@ from telegram.ext import CommandHandler, MessageHandler, ApplicationBuilder, Con
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
 OPEN_AI_KEY = os.environ['OPENAI_KEY']
 GPT_PROMPT = os.environ['GPT_PROMPT']
+HEROKU_APP_NAME = os.environ['HEROKU_APP_NAME']
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -60,5 +61,7 @@ if __name__ == '__main__':
 
     application.run_webhook(
         listen='0.0.0.0',
-        port=int(os.environ.get('PORT', 5000))
+        port=int(os.environ.get('PORT', 5000)),
+        url_path=TELEGRAM_BOT_KEY,
+        webhook_url=HEROKU_APP_NAME + TELEGRAM_BOT_KEY,
     )
