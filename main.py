@@ -26,10 +26,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=get_chat_gpt_answer(chat_id, update.message.text)
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=get_chat_gpt_answer(chat_id, update.message.text)
+        )
+    except Exception as e:
+        logging.error(e)
+        await context.bot.send_message(chat_id=chat_id, text=str(e))
 
 
 def get_chat_gpt_answer(telegram_id: int, question: str) -> str:
