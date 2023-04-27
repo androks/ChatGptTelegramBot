@@ -26,6 +26,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    loading_message = await context.bot.send_message(chat_id, text="Loading...")
     await context.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
     try:
         await context.bot.send_message(
@@ -35,6 +36,8 @@ async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(e)
         await context.bot.send_message(chat_id=chat_id, text=str(e))
+    finally:
+        await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.id)
 
 
 def get_chat_gpt_answer(telegram_id: int, question: str) -> str:
