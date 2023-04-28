@@ -1,28 +1,76 @@
-# This is a sample Python script.
-import os
-
-import openai as openai
-
+import asyncio
 import logging
+import os
+from typing import Any
 
-from telegram import Update
+import nest_asyncio
+from langchain import ConversationChain, PromptTemplate
+from langchain.callbacks import CallbackManager
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationSummaryBufferMemory, PostgresChatMessageHistory
+from langchain.schema import LLMResult
+from telegram import Update, Bot
 from telegram.constants import ChatAction
+from telegram.error import BadRequest
 from telegram.ext import CommandHandler, MessageHandler, ApplicationBuilder, ContextTypes, filters
 
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
 OPEN_AI_KEY = os.environ['OPENAI_KEY']
 GPT_PROMPT = os.environ['GPT_PROMPT']
 HEROKU_APP_NAME = os.environ['HEROKU_APP_NAME']
+DATABASE_URL = os.environ['DATABASE_URL']
 
-# Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
-openai.api_key = OPEN_AI_KEY
+
+class Callback(CallbackManager):
+    whole_text = ''
+    last_message_text = ''
+
+    def __init__(self, bot: Bot, chat_id: int, message_id: int):
+        super().__init__([])
+        self.bot = bot
+        self.chat_id = chat_id
+        self.message_id = message_id
+
+    def on_llm_end(self, response: LLMResult, verbose: bool = False, **kwargs: Any) -> None:
+        asyncio.get_event_loop().run_until_complete(self.update_message(force=True))
+
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        if token:
+            self.whole_text += token
+            nest_asyncio.apply()
+            asyncio.get_event_loop().run_until_complete(self.update_message())
+
+    async def update_message(self, force: bool = False):
+        if force or (self.whole_text and len(self.whole_text) - len(self.last_message_text) > 100):
+            try:
+                self.last_message_text = self.whole_text
+                await self.bot.edit_message_text(self.whole_text, self.chat_id, self.message_id)
+            except BadRequest as e:
+                if not e.message.startswith("Message is not modified"):
+                    raise e
+
+
+prompt_template = PromptTemplate(
+    input_variables=["history", "input"],
+    template=f'Context: {GPT_PROMPT}\n' + '<history start>{history}<history end>\n' + 'Question: {input}\n' + 'Answer:'
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Hi, what is your question?")
+
+
+async def clear_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_memory = PostgresChatMessageHistory(
+        session_id=str(update.effective_chat.id),
+        connection_string=DATABASE_URL
+    )
+    chat_memory.clear()
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="History Cleared.\nWhat is your next "
+                                                                          "question?")
 
 
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -30,33 +78,46 @@ async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loading_message = await context.bot.send_message(chat_id, text="Loading...")
     await context.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
     try:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=get_chat_gpt_answer(chat_id, update.message.text)
-        )
+        callback = Callback(context.bot, chat_id, loading_message.message_id)
+        get_chat_gpt_answer(chat_id, update.message.text, callback)
     except Exception as e:
-        logging.error(e)
+        logging.error(e, exc_info=True)
         await context.bot.send_message(chat_id=chat_id, text=str(e))
-    finally:
-        await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.id)
 
 
-def get_chat_gpt_answer(telegram_id: int, question: str) -> str:
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": GPT_PROMPT},
-            {"role": "system", "content": f'user_id: {telegram_id}'},
-            {"role": "user", "content": question},
-        ]
+def get_chat_gpt_answer(chat_id: int, question: str, callback: Callback) -> str:
+    response = get_chain_for_user_with(chat_id, callback).predict(input=question)
+    return response
+
+
+def get_chain_for_user_with(telegram_id: int, callback: Callback) -> ConversationChain:
+    open_ai = ChatOpenAI(
+        openai_api_key=OPEN_AI_KEY,
+        streaming=True,
+        verbose=True,
+        callback_manager=callback
     )
-    return response.choices[0].message.content
+    memory = ConversationSummaryBufferMemory(
+        llm=open_ai,
+        chat_memory=PostgresChatMessageHistory(
+            session_id=str(telegram_id),
+            connection_string=DATABASE_URL
+        )
+    )
+    conversation = ConversationChain(
+        llm=open_ai,
+        prompt=prompt_template,
+        verbose=False,
+        memory=memory
+    )
+    return conversation
 
 
 if __name__ == '__main__':
     application = ApplicationBuilder().token(TELEGRAM_BOT_KEY).build()
 
     application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('clear_history', clear_context))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message))
 
     application.run_webhook(
