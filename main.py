@@ -88,6 +88,10 @@ async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def chat_type_allowed(bot: Bot, chat: Chat, message_text: str) -> bool:
     bot_name = (await bot.get_me()).name
+    logging.info(message_text)
+    logging.info(bot_name)
+    logging.info(chat.type)
+    logging.info(str(message_text.__contains__(bot_name)))
     return chat.type == ChatType.PRIVATE or \
         ((chat.type == ChatType.GROUP or chat.type == ChatType.SUPERGROUP) and message_text.__contains__(bot_name))
 
