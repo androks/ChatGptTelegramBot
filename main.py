@@ -12,7 +12,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory, PostgresChatMessageHistory
 
 from cron import run_cron_jobs
-from set_webhook_job import delete_webhook
+from set_webhook_job import delete_webhook, set_webhook_url
 
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
 TELEGRAM_BOT_NAME = os.environ['TELEGRAM_BOT_NAME']
@@ -132,6 +132,7 @@ def heroku_init() -> Application:
 
     # Init telegram bot
     bot_dispatcher = init_bot()
+    asyncio.run(await set_webhook_url(bot_dispatcher.bot))
     run_cron_jobs(bot_dispatcher.bot)
 
     set_webhook(
