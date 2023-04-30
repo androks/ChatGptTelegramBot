@@ -10,9 +10,10 @@ from aiogram.utils.executor import set_webhook
 from aiohttp.web_app import Application
 from langchain import ConversationChain, PromptTemplate
 from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationSummaryBufferMemory, PostgresChatMessageHistory
+from langchain.memory import PostgresChatMessageHistory, ConversationBufferWindowMemory
+from openai import InvalidRequestError
 
-from set_webhook_job import delete_webhook, set_webhook_url
+from set_webhook_job import delete_webhook
 
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
 TELEGRAM_BOT_NAME = os.environ['TELEGRAM_BOT_NAME']
@@ -26,7 +27,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 prompt_template = PromptTemplate(
     input_variables=["history", "input"],
-    template=f'Context: {GPT_PROMPT}\n' + '<history start>{history}<history end>\n' + 'Question: {input}\n' + 'Answer:'
+    template=f'Context: {GPT_PROMPT}\n' + '{history}\n' + 'Question: {input}\n' + 'Answer:'
 )
 
 
@@ -34,12 +35,16 @@ async def start(message: Message):
     await message.bot.send_message(chat_id=message.chat.id, text="Hi, what is your question?")
 
 
-async def clear_context(message: Message):
+async def clear_context_with(chat_id: int):
     chat_memory = PostgresChatMessageHistory(
-        session_id=str(message.chat.id),
+        session_id=str(chat_id),
         connection_string=DATABASE_URL
     )
     chat_memory.clear()
+
+
+async def clear_context(message: Message):
+    await clear_context_with(message.chat.id)
     await message.bot.send_message(chat_id=message.chat.id, text="History Cleared.\nWhat is your next question?")
 
 
@@ -72,18 +77,25 @@ async def update_message_safe(bot: Bot, text: str, chat_id: int, message_id: int
             raise e
 
 
-async def get_chat_gpt_answer(bot: Bot, chat_id: int, question: str) -> str:
-    response = get_chain_for_user_with(chat_id).predict(input=question)
-    await bot.send_message(chat_id, response)
-    return response
+async def get_chat_gpt_answer(bot: Bot, chat_id: int, question: str):
+    try:
+        response = get_chain_for_user_with(chat_id).predict(input=question)
+        await bot.send_message(chat_id, response)
+    except InvalidRequestError as e:
+        logging.error(e, exc_info=True)
+        if e.user_message.__contains__("This model's maximum context length"):
+            await clear_context_with(chat_id)
+            await get_chat_gpt_answer(bot, chat_id, question)
+        else:
+            await bot.send_message(chat_id, e.user_message)
 
 
 def get_chain_for_user_with(telegram_id: int) -> ConversationChain:
     open_ai = ChatOpenAI(
         openai_api_key=OPEN_AI_KEY
     )
-    memory = ConversationSummaryBufferMemory(
-        llm=open_ai,
+    memory = ConversationBufferWindowMemory(
+        k=12,
         chat_memory=PostgresChatMessageHistory(
             session_id=str(telegram_id),
             connection_string=DATABASE_URL
