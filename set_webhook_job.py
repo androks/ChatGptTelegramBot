@@ -3,9 +3,9 @@ import logging
 import os
 
 from aiogram import Bot
+from aiogram.dispatcher.webhook import WEBHOOK
 
 SET_WEBHOOK_JOB_DELAY = 60 * 5
-WEBHOOK = "/webhook"
 
 
 async def delete_webhook(bot: Bot):
@@ -29,7 +29,7 @@ async def set_telegram_webhook_job(bot: Bot):
             if not webhook_info or not webhook_info.url:
                 logging.info('Webhook is not set. Setting')
                 await set_webhook_url(bot)
-            elif not webhook_info.url.__contains__(WEBHOOK):
+            elif webhook_info.url is not f'{os.environ["HEROKU_APP_NAME"]}{WEBHOOK}':
                 await bot.delete_webhook(drop_pending_updates=False)
                 await set_webhook_url(bot)
             else:

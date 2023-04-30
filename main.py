@@ -3,6 +3,7 @@ import logging
 import os
 
 from aiogram import Dispatcher, Bot
+from aiogram.dispatcher.webhook import WEBHOOK
 from aiogram.types import Message, ChatType
 from aiogram.utils.exceptions import BadRequest
 from aiogram.utils.executor import set_webhook
@@ -137,7 +138,7 @@ def heroku_init() -> Application:
 
     set_webhook(
         dispatcher=bot_dispatcher,
-        webhook_path='/webhook',
+        webhook_path=f'/{WEBHOOK}',
         web_app=app
     )
     logging.info('Application created and webhook was set. Returning app instance...')
