@@ -1,1 +1,1 @@
-web: gunicorn -w 3 -k aiohttp.GunicornWebWorker main:application
+web: gunicorn -w 2 -k aiohttp.GunicornWebWorker main:application
