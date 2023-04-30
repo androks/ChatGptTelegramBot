@@ -9,7 +9,7 @@ SET_WEBHOOK_JOB_DELAY = 60 * 5
 
 
 async def delete_webhook(bot: Bot):
-    await bot.delete_webhook()
+    await bot.delete_webhook(drop_pending_updates=False)
 
 
 async def set_webhook_url(bot: Bot):
