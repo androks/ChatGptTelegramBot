@@ -132,7 +132,7 @@ def heroku_init() -> Application:
 
     # Init telegram bot
     bot_dispatcher = init_bot()
-    asyncio.run(set_webhook_url(bot_dispatcher.bot))
+    asyncio.ensure_future(set_webhook_url(bot_dispatcher.bot))
     run_cron_jobs(bot_dispatcher.bot)
 
     set_webhook(
