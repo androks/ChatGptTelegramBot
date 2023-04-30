@@ -1,15 +1,21 @@
+import asyncio
 import logging
 import os
 
+from aiogram import Dispatcher, Bot
+from aiogram.types import Message, ChatType
+from aiogram.utils.exceptions import BadRequest
+from aiogram.utils.executor import set_webhook
+from aiohttp.web_app import Application
 from langchain import ConversationChain, PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory, PostgresChatMessageHistory
-from telegram import Update, Bot, Chat
-from telegram.constants import ChatAction, ChatType
-from telegram.error import BadRequest
-from telegram.ext import CommandHandler, MessageHandler, ApplicationBuilder, ContextTypes, filters
+
+from cron import run_cron_jobs
+from set_webhook_job import delete_webhook
 
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
+TELEGRAM_BOT_NAME = os.environ['TELEGRAM_BOT_NAME']
 OPEN_AI_KEY = os.environ['OPENAI_KEY']
 GPT_PROMPT = os.environ['GPT_PROMPT']
 HEROKU_APP_NAME = os.environ['HEROKU_APP_NAME']
@@ -18,60 +24,55 @@ DATABASE_URL = os.environ['DATABASE_URL']
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
-
 prompt_template = PromptTemplate(
     input_variables=["history", "input"],
     template=f'Context: {GPT_PROMPT}\n' + '<history start>{history}<history end>\n' + 'Question: {input}\n' + 'Answer:'
 )
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Hi, what is your question?")
+async def start(message: Message):
+    await message.bot.send_message(chat_id=message.chat.id, text="Hi, what is your question?")
 
 
-async def clear_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def clear_context(message: Message):
     chat_memory = PostgresChatMessageHistory(
-        session_id=str(update.effective_chat.id),
+        session_id=str(message.chat.id),
         connection_string=DATABASE_URL
     )
     chat_memory.clear()
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="History Cleared.\nWhat is your next "
-                                                                          "question?")
+    await message.bot.send_message(chat_id=message.chat.id, text="History Cleared.\nWhat is your next question?")
 
 
-async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bot = context.bot
-    chat = update.effective_chat
+async def message_handle(message: Message):
+    bot = message.bot
+    chat = message.chat
     chat_id = chat.id
-    if not await chat_type_allowed(bot, chat, update.message.text):
-        return
-    loading_message = await context.bot.send_message(chat_id, text="Loading...")
-    await context.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
+    loading_message = await bot.send_message(chat_id, text="Loading...")
+    await bot.send_chat_action(chat_id, action='typing')
     try:
-        await get_chat_gpt_answer(bot, chat_id, update.message.text, loading_message.message_id)
+        await get_chat_gpt_answer(bot, chat_id, message.text)
         await bot.delete_message(chat_id, loading_message.message_id)
     except Exception as e:
         logging.error(e, exc_info=True)
-        await context.bot.send_message(chat_id=chat_id, text=str(e))
+        await bot.send_message(chat_id=chat_id, text=str(e))
 
 
-async def chat_type_allowed(bot: Bot, chat: Chat, message_text: str) -> bool:
-    bot_name = (await bot.get_me()).name
-    logging.info(message_text)
-    logging.info(chat.type)
-    return chat.type == ChatType.PRIVATE or \
-        ((chat.type == ChatType.GROUP or chat.type == ChatType.SUPERGROUP) and message_text.__contains__(bot_name))
+def chat_type_allowed(message: Message) -> bool:
+    type = message.chat.type
+    text = message.text
+    return type == ChatType.PRIVATE or \
+        ((type == ChatType.GROUP or type == ChatType.SUPERGROUP) and text.__contains__(TELEGRAM_BOT_NAME))
 
 
 async def update_message_safe(bot: Bot, text: str, chat_id: int, message_id: int):
     try:
         await bot.edit_message_text(text, chat_id, message_id)
     except BadRequest as e:
-        if not e.message.startswith("Message is not modified"):
+        if not e.text.startswith("Message is not modified"):
             raise e
 
 
-async def get_chat_gpt_answer(bot: Bot, chat_id: int, question: str, message_id: int) -> str:
+async def get_chat_gpt_answer(bot: Bot, chat_id: int, question: str) -> str:
     response = get_chain_for_user_with(chat_id).predict(input=question)
     await bot.send_message(chat_id, response)
     return response
@@ -97,16 +98,52 @@ def get_chain_for_user_with(telegram_id: int) -> ConversationChain:
     return conversation
 
 
-if __name__ == '__main__':
-    application = ApplicationBuilder().token(TELEGRAM_BOT_KEY).build()
+def init_app() -> Application:
+    # Init application and set config
+    app = Application()
 
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('clear_history', clear_context))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message))
+    return app
 
-    application.run_webhook(
-        listen='0.0.0.0',
-        port=int(os.environ.get('PORT', 5000)),
-        url_path=TELEGRAM_BOT_KEY,
-        webhook_url=HEROKU_APP_NAME + TELEGRAM_BOT_KEY,
+
+def init_bot_dispatcher(bot: Bot) -> Dispatcher:
+    dp = Dispatcher(bot)
+    dp.register_message_handler(start, commands=['start'])
+    dp.register_message_handler(clear_context, commands=['clear_history'])
+    dp.register_message_handler(message_handle, lambda message: chat_type_allowed(message))
+    return dp
+
+
+def init_bot() -> Dispatcher:
+    bot = Bot(token=TELEGRAM_BOT_KEY)
+    bot_dispatcher = init_bot_dispatcher(bot)
+    return bot_dispatcher
+
+
+def local_init():
+    # Init telegram bot
+    bot_dispatcher = init_bot()
+    asyncio.run(delete_webhook(bot_dispatcher.bot))
+    asyncio.run(bot_dispatcher.start_polling())
+
+
+def heroku_init() -> Application:
+    # Init application
+    app = init_app()
+
+    # Init telegram bot
+    bot_dispatcher = init_bot()
+    run_cron_jobs(bot_dispatcher.bot)
+
+    set_webhook(
+        dispatcher=bot_dispatcher,
+        webhook_path='/webhook',
+        web_app=app
     )
+    logging.info('Application created and webhook was set. Returning app instance...')
+    return app
+
+
+if __name__ == '__main__':
+    local_init()
+else:
+    application = heroku_init()
