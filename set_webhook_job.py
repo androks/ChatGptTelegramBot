@@ -15,7 +15,7 @@ async def delete_webhook(bot: Bot):
 async def set_webhook_url(bot: Bot):
     try:
         webhook = f'{os.environ["HEROKU_APP_NAME"]}{WEBHOOK}'
-        await bot.set_webhook(webhook, max_connections=50)
+        await bot.set_webhook(webhook)
         logging.info(f'Webhook was set to {webhook}')
     except Exception as e:
         logging.info(e, exc_info=True)
