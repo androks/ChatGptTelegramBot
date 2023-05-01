@@ -13,6 +13,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.memory import PostgresChatMessageHistory, ConversationBufferWindowMemory
 from openai import InvalidRequestError
 
+from cron import run_cron_jobs
 from set_webhook_job import delete_webhook
 
 TELEGRAM_BOT_KEY = os.environ['TELEGRAM_BOT_KEY']
@@ -144,6 +145,7 @@ def heroku_init() -> Application:
 
     # Init telegram bot
     bot_dispatcher = init_bot()
+    run_cron_jobs(bot_dispatcher.bot)
 
     set_webhook(
         dispatcher=bot_dispatcher,
