@@ -44,8 +44,11 @@ async def clear_context_with(chat_id: int):
 
 
 async def clear_context(message: Message):
-    await clear_context_with(message.chat.id)
-    await message.bot.send_message(chat_id=message.chat.id, text="History Cleared.\nWhat is your next question?")
+    try:
+        await clear_context_with(message.chat.id)
+        await message.bot.send_message(chat_id=message.chat.id, text="History Cleared.\nWhat is your next question?")
+    except BotBlocked as e:
+        logging.error(f'User {message.chat.id}: {message.chat.username} has blocked the bot')
 
 
 async def message_handle(message: Message):
