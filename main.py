@@ -5,7 +5,7 @@ import os
 from aiogram import Dispatcher, Bot
 from aiogram.dispatcher.webhook import WEBHOOK
 from aiogram.types import Message, ChatType
-from aiogram.utils.exceptions import BadRequest
+from aiogram.utils.exceptions import BadRequest, Unauthorized
 from aiogram.utils.executor import set_webhook
 from aiohttp.web_app import Application
 from langchain import ConversationChain, PromptTemplate
@@ -52,11 +52,13 @@ async def message_handle(message: Message):
     bot = message.bot
     chat = message.chat
     chat_id = chat.id
-    loading_message = await bot.send_message(chat_id, text="Loading...")
-    await bot.send_chat_action(chat_id, action='typing')
     try:
+        loading_message = await bot.send_message(chat_id, text="Loading...")
+        await bot.send_chat_action(chat_id, action='typing')
         await get_chat_gpt_answer(bot, chat_id, message.text)
         await bot.delete_message(chat_id, loading_message.message_id)
+    except Unauthorized as e:
+        logging.error(f'User {message.chat.id}: {message.chat.username} has blocked the bot')
     except Exception as e:
         logging.error(e, exc_info=True)
         await bot.send_message(chat_id=chat_id, text=str(e))
